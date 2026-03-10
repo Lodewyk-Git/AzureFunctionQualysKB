@@ -48,7 +48,7 @@
     },
     "variables": {
         "streamName": "[concat('Custom-', parameters('tableName'))]",
-        "outputStreamName": "[concat('Microsoft-Table-', parameters('tableName'))]"
+        "outputStreamName": "[concat('Custom-', parameters('tableName'))]"
     },
     "resources": [
         {

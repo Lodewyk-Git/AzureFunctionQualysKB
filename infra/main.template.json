@@ -132,7 +132,7 @@
     },
     "variables": {
         "streamName": "[concat('Custom-', parameters('tableName'))]",
-        "outputStreamName": "[concat('Microsoft-Table-', parameters('tableName'))]",
+        "outputStreamName": "[concat('Custom-', parameters('tableName'))]",
         "checkpointContainerName": "qualyskb-checkpoints",
         "monitoringMetricsPublisherRoleId": "3913510d-42f4-4e42-8a64-420c390055eb",
         "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
@@ -389,7 +389,7 @@
                     {
                         "streams": [ "[variables('streamName')]" ],
                         "destinations": [ "la-destination" ],
-                        "transformKql": "source | extend TimeGenerated = coalesce(todatetime(DateValue), now()) | project-away DateValue",
+                        "transformKql": "source | extend TimeGenerated = iif(isnotempty(DateValue), todatetime(DateValue), now()) | project-away DateValue",
                         "outputStream": "[variables('outputStreamName')]"
                     }
                 ]
