@@ -55,7 +55,7 @@ if (-not (Test-QualysUri -Uri $qualysUri)) {
 }
 
 # Normalize filter parameters
-$filterParameters = Normalize-KBFilterParameters -RawFilterParameters $filterParameters
+$filterParameters = Format-KBFilterParameters -RawFilterParameters $filterParameters
 
 # ─── Checkpoint: Read ─────────────────────────────────────────────────────────────
 $endTime = [datetime]::UtcNow

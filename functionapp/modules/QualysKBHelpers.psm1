@@ -71,7 +71,7 @@ function Test-QualysUri {
     return $false
 }
 
-function Normalize-KBFilterParameters {
+function Format-KBFilterParameters {
     param(
         [string]$RawFilterParameters
     )
@@ -167,7 +167,7 @@ function Get-CheckpointFromBlob {
         }
     }
     catch {
-        if ($_.Exception.Message -like "*BlobNotFound*" -or $_.Exception.Message -like "*The specified blob does not exist*" -or $_.Exception.Message -like "*404*") {
+        if ($_.Exception.Message -like "*BlobNotFound*" -or $_.Exception.Message -like "*The specified blob does not exist*" -or $_.Exception.Message -like "*Can not find blob*" -or $_.Exception.Message -like "*404*") {
             Write-Host "No checkpoint blob found. Using default lookback of $DefaultLookbackMinutes minutes."
         }
         else {
@@ -483,7 +483,7 @@ function ConvertFrom-QualysVulnXml {
 Export-ModuleMember -Function @(
     'ConvertFrom-HtmlToText',
     'Test-QualysUri',
-    'Normalize-KBFilterParameters',
+    'Format-KBFilterParameters',
     'Get-ManagedIdentityToken',
     'Get-CheckpointFromBlob',
     'Set-CheckpointToBlob',

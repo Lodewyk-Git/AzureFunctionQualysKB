@@ -4,7 +4,7 @@
 # Use it to perform one-time initialisation tasks.
 
 # Authenticate with Azure PowerShell using the managed identity (for Az.Storage operations)
-if ($env:MSI_SECRET) {
+if ($env:IDENTITY_ENDPOINT) {
     Disable-AzContextAutosave -Scope Process | Out-Null
     Connect-AzAccount -Identity | Out-Null
     Write-Host "Connected to Azure using Managed Identity."
