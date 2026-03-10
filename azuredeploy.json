@@ -1,6 +1,13 @@
 {
     "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
     "contentVersion": "1.0.0.0",
+    "metadata": {
+        "title": "Qualys VM KnowledgeBase - Logs Ingestion API",
+        "description": "Deploys an Azure Function App that ingests the Qualys VM KnowledgeBase into a Log Analytics custom table via the Logs Ingestion API (DCR/DCE).",
+        "author": "BUI Engineering - Lodewyk",
+        "version": "1.0.0",
+        "lastUpdated": "2026-03-10"
+    },
     "parameters": {
         "FunctionName": {
             "type": "string",
@@ -53,6 +60,7 @@
         },
         "FunctionCodePackageUri": {
             "type": "string",
+            "defaultValue": "https://github.com/Lodewyk-Git/AzureFunctionQualysKB/releases/download/v1.0.0/functionapp.zip",
             "metadata": {
                 "description": "URI to the function code ZIP package (e.g. a GitHub Release asset URL or Azure Blob SAS URI)."
             }
@@ -331,7 +339,7 @@
                     {
                         "streams": [ "[variables('StreamName')]" ],
                         "destinations": [ "la-destination" ],
-                        "transformKql": "source | extend TimeGenerated = coalesce(todatetime(DateValue), now()) | project-away DateValue",
+                        "transformKql": "source | extend TimeGenerated = iif(isnotempty(DateValue), todatetime(DateValue), now()) | project-away DateValue",
                         "outputStream": "[variables('OutputStreamName')]"
                     }
                 ]

@@ -35,7 +35,10 @@ param(
 
     [string]$FunctionAppPath = "$PSScriptRoot\..\functionapp",
 
-    [string]$TemplatesPath = "$PSScriptRoot\..\infra"
+    [string]$TemplatesPath = "$PSScriptRoot\..\infra",
+
+    [Parameter(Mandatory)]
+    [string]$WorkspaceResourceId
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +58,42 @@ Write-Host "Azure context: $($context.Subscription.Name) ($($context.Subscriptio
 $rg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
 if (-not $rg) {
     throw "Resource group '$ResourceGroupName' not found."
+}
+
+# ─── Pre-flight: Migrate classic QualysKB_CL table if it exists ──────────────
+Write-Host "`n[Pre-flight] Checking for existing classic QualysKB_CL table..." -ForegroundColor Yellow
+
+$workspaceName = ($WorkspaceResourceId -split '/')[-1]
+$workspaceRg   = ($WorkspaceResourceId -split '/')[4]
+$tableName     = "QualysKB_CL"
+
+try {
+    $table = Invoke-AzRestMethod -Path "$WorkspaceResourceId/tables/${tableName}?api-version=2022-10-01" -Method GET
+    if ($table.StatusCode -eq 200) {
+        $tableObj = $table.Content | ConvertFrom-Json
+        $isMigrated = $tableObj.properties.schema.tableSubType -eq "DataCollectionRuleBased"
+        if (-not $isMigrated) {
+            Write-Host "  Classic table '$tableName' detected. Migrating to DCR-based..." -ForegroundColor Yellow
+            $migrateResult = Invoke-AzRestMethod `
+                -Path "$WorkspaceResourceId/tables/${tableName}/migrate?api-version=2022-10-01" `
+                -Method POST
+            if ($migrateResult.StatusCode -in 200, 202) {
+                Write-Host "  Table migration initiated successfully." -ForegroundColor Green
+                # Wait for migration to complete
+                Start-Sleep -Seconds 10
+            } else {
+                throw "Table migration failed (HTTP $($migrateResult.StatusCode)): $($migrateResult.Content)"
+            }
+        } else {
+            Write-Host "  Table '$tableName' is already DCR-based. No migration needed." -ForegroundColor Green
+        }
+    } elseif ($table.StatusCode -eq 404) {
+        Write-Host "  Table '$tableName' does not exist yet. ARM template will create it." -ForegroundColor Green
+    } else {
+        Write-Warning "  Could not check table status (HTTP $($table.StatusCode)). Proceeding anyway."
+    }
+} catch {
+    Write-Warning "  Pre-flight table check failed: $_. Proceeding with deployment."
 }
 
 # ─── Step 1: Deploy main ARM template ─────────────────────────────────────────

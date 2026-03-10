@@ -101,7 +101,7 @@
                     {
                         "streams": [ "[variables('streamName')]" ],
                         "destinations": [ "la-destination" ],
-                        "transformKql": "source | extend TimeGenerated = coalesce(todatetime(DateValue), now()) | project-away DateValue",
+                        "transformKql": "source | extend TimeGenerated = iif(isnotempty(DateValue), todatetime(DateValue), now()) | project-away DateValue",
                         "outputStream": "[variables('outputStreamName')]"
                     }
                 ]

@@ -1,3 +1,6 @@
+# Build artifacts
+*.zip
+
 # Azure Functions
 local.settings.json
 bin/
