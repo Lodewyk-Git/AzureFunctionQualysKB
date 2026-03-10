@@ -1,4 +1,4 @@
-# Qualys KB Data Connector — Azure Monitor Logs Ingestion API
+# Qualys KB Data Connector - Azure Monitor Logs Ingestion API
 
 ## Overview
 
@@ -27,7 +27,7 @@ Azure Function (Timer Trigger, 5 min)
 
 ## Portal Deployment (Custom Template)
 
-Deploy directly to Azure via the portal using `azuredeploy.json` — the same pattern as the original Sentinel Qualys KB connector:
+Deploy directly to Azure via the portal using `azuredeploy.json` - the same pattern as the original Sentinel Qualys KB connector:
 
 1. In the Azure Portal, go to **Deploy a custom template**.
 2. Click **Build your own template in the editor**.

@@ -1,6 +1,6 @@
-# Qualys KB Data Connector — Logs Ingestion API Migration Design
+# Qualys KB Data Connector - Logs Ingestion API Migration Design
 
-## SECTION A — Executive Summary
+## SECTION A - Executive Summary
 
 This document describes the complete migration of the Qualys KnowledgeBase (KB) vulnerability data ingestion pipeline from the **legacy Log Analytics HTTP Data Collector API** to the **Azure Monitor Logs Ingestion API** with **Data Collection Rules (DCRs)** and **Data Collection Endpoints (DCEs)**.
 
@@ -23,15 +23,15 @@ The legacy `Build-Signature` / `Post-LogAnalyticsData` functions using workspace
 
 ---
 
-## SECTION B — Current vs Target Architecture
+## SECTION B - Current vs Target Architecture
 
 | Aspect | Current (Data Collector API) | Target (Logs Ingestion API) |
 |---|---|---|
 | **Auth model** | Workspace ID + Shared Key (HMAC-SHA256 signature) | Entra ID OAuth2 bearer token via Managed Identity |
-| **Auth rotation** | Manual key rotation | Automatic — managed identity tokens auto-rotate |
+| **Auth rotation** | Manual key rotation | Automatic - managed identity tokens auto-rotate |
 | **Table model** | Data Collector auto-creates `QualysKB_CL` with `_s`, `_d` suffixes | DCR-based custom table with explicit typed columns, no suffixes |
-| **Schema control** | Implicit — schema inferred on first POST | Explicit — defined in table resource + DCR `streamDeclarations` |
-| **Schema evolution** | Append-only; new fields auto-added with type suffix | Controlled — update table + DCR; mismatches rejected |
+| **Schema control** | Implicit - schema inferred on first POST | Explicit - defined in table resource + DCR `streamDeclarations` |
+| **Schema evolution** | Append-only; new fields auto-added with type suffix | Controlled - update table + DCR; mismatches rejected |
 | **API endpoint** | `https://{workspaceId}.ods.opinsights.azure.com/api/logs` | `https://{dce-endpoint}.ingest.monitor.azure.com/dataCollectionRules/{dcrImmutableId}/streams/{stream}?api-version=2023-01-01` |
 | **Payload limit** | ~30 MB per POST | **1 MB per POST** (compressed or uncompressed) |
 | **Batching** | Single large payload | Must chunk into ≤1 MB batches; function handles splitting |
@@ -45,14 +45,14 @@ The legacy `Build-Signature` / `Post-LogAnalyticsData` functions using workspace
 ### Key differences that drive the migration
 
 1. **Security**: Shared keys grant broad workspace access and require manual rotation. Managed Identity + DCR-scoped RBAC follows zero-trust principles.
-2. **Payload size**: The Logs Ingestion API enforces a **1 MB** limit per POST. The current code sends up to 30 MB in one call — this must be chunked.
+2. **Payload size**: The Logs Ingestion API enforces a **1 MB** limit per POST. The current code sends up to 30 MB in one call - this must be chunked.
 3. **Schema**: Data Collector API appends `_s`, `_d`, etc. to column names and allows unconstrained schema drift. DCR-based tables have clean, typed columns.
 4. **Checkpoint durability**: The filesystem on Azure Functions Consumption plan is ephemeral. Blob storage is durable and works correctly with scale-out.
 5. **Deprecation**: The Data Collector API is deprecated. Migration is mandatory.
 
 ---
 
-## SECTION C — Recommended Future-State Design
+## SECTION C - Recommended Future-State Design
 
 ### Component Architecture
 
@@ -91,7 +91,7 @@ The legacy `Build-Signature` / `Post-LogAnalyticsData` functions using workspace
 │  └─────────────────────────┬───────────────────────────────┘  │
 │                            │                                  │
 │  ┌─────────────────────────▼───────────────────────────────┐  │
-│  │ Data Collection Rule (DCR)  — kind: Direct              │  │
+│  │ Data Collection Rule (DCR)  - kind: Direct              │  │
 │  │  streamDeclarations: Custom-QualysKB_CL                 │  │
 │  │  dataFlows: → Microsoft-Table-QualysKB_CL               │  │
 │  │  transformKql: source | extend TimeGenerated = ...      │  │
@@ -131,11 +131,11 @@ This is out of scope for the base deployment but the ARM templates use parameter
 
 ---
 
-## SECTION D — Target Table and Schema Design
+## SECTION D - Target Table and Schema Design
 
 ### Table Name
 
-`QualysKB_CL` — new DCR-based custom table. This is a **side-by-side deployment** alongside the legacy `QualysKB_CL` (which was created by the Data Collector API). The legacy table can be retained for historical queries during a transition period, then deprecated.
+`QualysKB_CL` - new DCR-based custom table. This is a **side-by-side deployment** alongside the legacy `QualysKB_CL` (which was created by the Data Collector API). The legacy table can be retained for historical queries during a transition period, then deprecated.
 
 **Why side-by-side?** The legacy Data Collector table has type-suffixed columns (`QID_s`, `Title_s`, etc.) and its schema cannot be changed to match DCR requirements. A clean DCR-based table provides proper typing and removes suffix clutter.
 
@@ -155,17 +155,17 @@ This is out of scope for the base deployment but the ARM templates use parameter
 | `Patchable` | `string` | Whether a patch is available | Kept as string ("0"/"1") for compatibility |
 | `Published_DateTime` | `datetime` | Publication timestamp from Qualys | |
 | `Severity_Level` | `int` | Severity level (1–5) | Integer for filtering/sorting |
-| `CVE_ID` | `dynamic` | CVE identifier(s) | **Changed to dynamic** — supports multi-CVE vulns as JSON array |
-| `CVE_URL` | `dynamic` | CVE reference URL(s) | **Changed to dynamic** — parallel array with CVE_ID |
-| `Vendor_Reference_ID` | `dynamic` | Vendor reference ID(s) | **Changed to dynamic** — supports multiple references |
+| `CVE_ID` | `dynamic` | CVE identifier(s) | **Changed to dynamic** - supports multi-CVE vulns as JSON array |
+| `CVE_URL` | `dynamic` | CVE reference URL(s) | **Changed to dynamic** - parallel array with CVE_ID |
+| `Vendor_Reference_ID` | `dynamic` | Vendor reference ID(s) | **Changed to dynamic** - supports multiple references |
 | `Vendor_Reference_URL` | `dynamic` | Vendor reference URL(s) | **Changed to dynamic** |
 | `PCI_Flag` | `string` | PCI compliance flag | |
-| `Software_Product` | `dynamic` | Affected software product(s) | **Changed to dynamic** — supports multiple products |
+| `Software_Product` | `dynamic` | Affected software product(s) | **Changed to dynamic** - supports multiple products |
 | `Software_Vendor` | `dynamic` | Affected software vendor(s) | **Changed to dynamic** |
 | `Solution` | `string` | Plain-text solution description | HTML stripped before ingestion |
 | `Vuln_Type` | `string` | Vulnerability type | |
 | `Discovery_Additional_Info` | `string` | Additional discovery information | |
-| `Discovery_Auth_Type` | `dynamic` | Authentication type(s) used for discovery | **Changed to dynamic** — supports multiple types |
+| `Discovery_Auth_Type` | `dynamic` | Authentication type(s) used for discovery | **Changed to dynamic** - supports multiple types |
 | `Discovery_Remote` | `string` | Remote discovery flag | |
 | `THREAT_INTELLIGENCE` | `dynamic` | Threat intelligence data | Already JSON in legacy; kept as dynamic |
 
@@ -183,12 +183,12 @@ Fields changed from `string` to `dynamic`:
 The `DateValue` field in the legacy code maps to `LAST_SERVICE_MODIFICATION_DATETIME`. In the new design:
 - The Function sends a `DateValue` field in the JSON payload.
 - The DCR `transformKql` sets `TimeGenerated` from `DateValue`: `source | extend TimeGenerated = todatetime(DateValue)`.
-- The `DateValue` column is **not stored** in the table — it is consumed by the transform and mapped to `TimeGenerated`.
+- The `DateValue` column is **not stored** in the table - it is consumed by the transform and mapped to `TimeGenerated`.
 - If `DateValue` is null/empty, `TimeGenerated` defaults to ingestion time via `coalesce(todatetime(DateValue), now())`.
 
 ---
 
-## SECTION E — DCR / DCE Design
+## SECTION E - DCR / DCE Design
 
 ### Stream Name
 
@@ -262,7 +262,7 @@ Custom streams for direct ingestion must be prefixed with `Custom-`. The suffix 
 
 ### DCR Kind
 
-`"kind": "Direct"` — This DCR is used for direct ingestion (API push), not agent-based collection.
+`"kind": "Direct"` - This DCR is used for direct ingestion (API push), not agent-based collection.
 
 ### Ingestion URI
 
@@ -278,13 +278,13 @@ https://{DCE_LOGS_INGESTION_ENDPOINT}/dataCollectionRules/{DCR_IMMUTABLE_ID}/str
 ### When is DCE required vs optional?
 
 - **Required when**: Using the Logs Ingestion API for direct ingestion (our case). The DCE provides the regional ingestion endpoint URL.
-- **Optional when**: Using Azure Monitor Agent (AMA) for agent-based collection — the agent has its own built-in endpoint.
+- **Optional when**: Using Azure Monitor Agent (AMA) for agent-based collection - the agent has its own built-in endpoint.
 
 In this architecture, **DCE is required** and must be deployed. The DCR's `dataCollectionEndpointId` property links the DCR to its DCE.
 
 ---
 
-## SECTION F — Function App Refactor Plan
+## SECTION F - Function App Refactor Plan
 
 ### What to REMOVE
 
@@ -345,7 +345,7 @@ The Logs Ingestion API has a **1 MB** per-request payload limit. The function:
 - Max retries: 3
 - Base delay: 1 second
 - Backoff: exponential with jitter (`delay * 2^attempt + random(0, 500ms)`)
-- Retry on: 429 (rate limit — honour `Retry-After` header), 500, 502, 503, 504
+- Retry on: 429 (rate limit - honour `Retry-After` header), 500, 502, 503, 504
 - No retry on: 400 (bad request), 401/403 (auth), 404
 
 ### Idempotency
@@ -368,7 +368,7 @@ The Qualys KB API returns deterministic data for a given `published_after` windo
 
 ---
 
-## SECTION G — Proposed File/Folder Structure
+## SECTION G - Proposed File/Folder Structure
 
 ```
 AzureFunctionQualysKB_rebuild/
@@ -393,14 +393,14 @@ AzureFunctionQualysKB_rebuild/
 │       └── QualysKBHelpers.psm1           # Shared helper functions
 ├── scripts/
 │   └── Deploy-Solution.ps1               # End-to-end deployment script
-├── run.ps1                                # LEGACY — original code (retained for reference)
-├── function.json                          # LEGACY — original binding (retained for reference)
+├── run.ps1                                # LEGACY - original code (retained for reference)
+├── function.json                          # LEGACY - original binding (retained for reference)
 └── README.md                             # Project README
 ```
 
 ---
 
-## SECTION H — Implementation Steps
+## SECTION H - Implementation Steps
 
 ### Step-by-step Migration Plan
 
@@ -424,12 +424,12 @@ AzureFunctionQualysKB_rebuild/
 
 1. The legacy function code is preserved in the repo root (`run.ps1`, `function.json`).
 2. If the new function fails, re-deploy the legacy code and restore `workspaceId` / `workspacekey` settings.
-3. The legacy `QualysKB_CL` table remains untouched throughout migration — no data loss.
+3. The legacy `QualysKB_CL` table remains untouched throughout migration - no data loss.
 4. DCR/DCE can be deleted without affecting the workspace or other data.
 
 ---
 
-## SECTION I — ARM Template Design
+## SECTION I - ARM Template Design
 
 See the individual template files in `infra/`. Key design decisions:
 
@@ -475,17 +475,17 @@ The main template outputs:
 
 ---
 
-## SECTION J — ARM Template Files to Produce
+## SECTION J - ARM Template Files to Produce
 
 | File | Purpose |
 |---|---|
 | `infra/main.template.json` | Orchestrator template that deploys all resources in dependency order. Uses nested deployments (inline) rather than linked templates (which require a staging URI). |
 | `infra/main.parameters.json` | Parameters file with placeholder values |
-| `infra/table.template.json` | `Microsoft.OperationalInsights/workspaces/tables` — `QualysKB_CL` |
+| `infra/table.template.json` | `Microsoft.OperationalInsights/workspaces/tables` - `QualysKB_CL` |
 | `infra/dce.template.json` | `Microsoft.Insights/dataCollectionEndpoints` |
 | `infra/dcr.template.json` | `Microsoft.Insights/dataCollectionRules` with `kind: Direct` |
 | `infra/functionapp.template.json` | `Microsoft.Storage/storageAccounts` + `Microsoft.Web/serverfarms` + `Microsoft.Web/sites` with managed identity and app settings |
-| `infra/roleassignments.template.json` | `Microsoft.Authorization/roleAssignments` — Monitoring Metrics Publisher on DCR |
+| `infra/roleassignments.template.json` | `Microsoft.Authorization/roleAssignments` - Monitoring Metrics Publisher on DCR |
 
 **Note**: A single monolithic ARM template is worse than modular templates for this project because:
 1. The RBAC assignment depends on the Function App's managed identity principal ID, which is only known after the Function App is deployed.
@@ -497,7 +497,7 @@ The `main.template.json` orchestrates these as nested inline deployments with ex
 
 ---
 
-## SECTION K — Refactored PowerShell Function
+## SECTION K - Refactored PowerShell Function
 
 See `functionapp/QualysKBTimerTrigger/run.ps1` and `functionapp/modules/QualysKBHelpers.psm1` for the complete implementation.
 
@@ -511,18 +511,18 @@ Key architectural changes in the refactored code:
 
 ---
 
-## SECTION L — Validation and Test Plan
+## SECTION L - Validation and Test Plan
 
 ### Test Cases
 
 | # | Test Case | Method | Expected Outcome |
 |---|---|---|---|
-| 1 | **Happy path — new records** | Trigger function with KB data available | Records appear in `QualysKB_CL`; checkpoint updated |
+| 1 | **Happy path - new records** | Trigger function with KB data available | Records appear in `QualysKB_CL`; checkpoint updated |
 | 2 | **No new records** | Trigger with checkpoint = now | Function logs "No new records"; checkpoint updated; no API errors |
 | 3 | **First run (no checkpoint)** | Delete checkpoint blob | Checkpoint blob created with `now - timeInterval`; records fetched |
 | 4 | **Oversized payload** | Mock 5000+ KB records | Records chunked into ≤1 MB batches; all batches succeed |
-| 5 | **Auth failure — Qualys** | Set wrong `apiPassword` | Function logs error; checkpoint NOT updated; no partial data |
-| 6 | **Auth failure — Logs Ingestion** | Remove RBAC role | 403 from Logs Ingestion API; function logs error; no checkpoint update |
+| 5 | **Auth failure - Qualys** | Set wrong `apiPassword` | Function logs error; checkpoint NOT updated; no partial data |
+| 6 | **Auth failure - Logs Ingestion** | Remove RBAC role | 403 from Logs Ingestion API; function logs error; no checkpoint update |
 | 7 | **Schema mismatch** | Send field not in DCR stream | 400 from Logs Ingestion API; logged; function continues with valid records |
 | 8 | **DCE/DCR endpoint wrong** | Set invalid `dceEndpoint` | Connection failure; logged; no checkpoint update |
 | 9 | **Rate limiting (429)** | Simulate high-frequency calls | Retry with backoff; eventually succeeds or logs final failure |
@@ -538,7 +538,7 @@ QualysKB_CL
 | where TimeGenerated > ago(1h)
 | count
 
-// Verify schema — all expected columns present
+// Verify schema - all expected columns present
 QualysKB_CL
 | getschema
 
@@ -572,7 +572,7 @@ QualysKB_CL
 
 ---
 
-## SECTION M — Risks and Gotchas
+## SECTION M - Risks and Gotchas
 
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
@@ -592,7 +592,7 @@ QualysKB_CL
 
 ---
 
-## SECTION N — Final Recommendation
+## SECTION N - Final Recommendation
 
 ### Production Design Recommendation
 

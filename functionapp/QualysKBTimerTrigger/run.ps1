@@ -164,7 +164,7 @@ try {
     }
     elseif ($failedChunks -lt $chunks.Count) {
         # Partial success: do NOT update checkpoint so next run re-fetches the full window
-        Write-Warning "$failedChunks of $($chunks.Count) chunks failed. Checkpoint NOT updated — next run will retry."
+        Write-Warning "$failedChunks of $($chunks.Count) chunks failed. Checkpoint NOT updated - next run will retry."
     }
     else {
         Write-Error "All $($chunks.Count) chunks failed. Checkpoint NOT updated."

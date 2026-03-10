@@ -44,7 +44,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  Qualys KB Logs Ingestion Pipeline — Deployment Script" -ForegroundColor Cyan
+Write-Host "  Qualys KB Logs Ingestion Pipeline - Deployment Script" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 
 # Verify Azure login
