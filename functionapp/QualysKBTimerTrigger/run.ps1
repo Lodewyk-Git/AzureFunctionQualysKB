@@ -2,6 +2,7 @@
     Title:          Qualys KnowledgeBase (KB) Data Connector
     Language:       PowerShell
     Version:        2.0
+    Author:         BUI Engineering - Lodewyk
     Last Modified:  2026-03-10
     Comment:        Rebuilt for Azure Monitor Logs Ingestion API (DCR/DCE)
 
@@ -9,17 +10,6 @@
     This Function App calls the Qualys VM KnowledgeBase (KB) API to pull vulnerability
     data and ingests it into a Log Analytics custom table via the Azure Monitor Logs
     Ingestion API using Data Collection Rules (DCRs) and Managed Identity authentication.
-
-    MIGRATION NOTES
-    - Removed: Legacy HTTP Data Collector API (Build-Signature, Post-LogAnalyticsData)
-    - Removed: Workspace shared key authentication
-    - Removed: Filesystem-based CSV checkpoint
-    - Added:   Managed Identity token acquisition for https://monitor.azure.com
-    - Added:   Logs Ingestion API with DCR/DCE
-    - Added:   Blob Storage checkpoint persistence
-    - Added:   Payload chunking (1 MB API limit)
-    - Added:   Retry with exponential backoff
-    - Added:   Multi-value field extraction (CVE, vendor refs, software)
 #>
 
 param($Timer)
