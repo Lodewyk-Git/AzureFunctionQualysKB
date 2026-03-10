@@ -1,0 +1,61 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "value": "australiaeast"
+        },
+        "workspaceName": {
+            "value": "law-qualyskb-prod"
+        },
+        "workspaceResourceId": {
+            "value": "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>/providers/Microsoft.OperationalInsights/workspaces/law-qualyskb-prod"
+        },
+        "tableName": {
+            "value": "QualysKB_CL"
+        },
+        "dceName": {
+            "value": "dce-qualyskb-prod"
+        },
+        "dcrName": {
+            "value": "dcr-qualyskb-prod"
+        },
+        "functionAppName": {
+            "value": "func-qualyskb-prod"
+        },
+        "storageAccountName": {
+            "value": "stqualyskbprod"
+        },
+        "keyVaultName": {
+            "value": ""
+        },
+        "qualysUri": {
+            "value": "https://qualysapi.qualys.com/api/2.0"
+        },
+        "qualysApiUsername": {
+            "value": ""
+        },
+        "qualysApiPassword": {
+            "value": ""
+        },
+        "filterParameters": {
+            "value": ""
+        },
+        "timeInterval": {
+            "value": 5
+        },
+        "timerSchedule": {
+            "value": "0 */5 * * * *"
+        },
+        "tableRetentionInDays": {
+            "value": 90
+        },
+        "tags": {
+            "value": {
+                "project": "QualysKB-Ingestion",
+                "environment": "production",
+                "managedBy": "ARM"
+            }
+        }
+    }
+}

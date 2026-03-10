@@ -1,0 +1,471 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Azure region for all resources. Must match the Log Analytics workspace region."
+            }
+        },
+        "workspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the existing Log Analytics workspace."
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace (e.g. /subscriptions/.../resourceGroups/.../providers/Microsoft.OperationalInsights/workspaces/...)."
+            }
+        },
+        "tableName": {
+            "type": "string",
+            "defaultValue": "QualysKB_CL",
+            "metadata": {
+                "description": "Name of the custom log table. Must end with _CL."
+            }
+        },
+        "dceName": {
+            "type": "string",
+            "defaultValue": "dce-qualyskb",
+            "metadata": {
+                "description": "Name of the Data Collection Endpoint."
+            }
+        },
+        "dcrName": {
+            "type": "string",
+            "defaultValue": "dcr-qualyskb",
+            "metadata": {
+                "description": "Name of the Data Collection Rule."
+            }
+        },
+        "functionAppName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Azure Function App."
+            }
+        },
+        "appServicePlanName": {
+            "type": "string",
+            "defaultValue": "[concat('asp-', parameters('functionAppName'))]",
+            "metadata": {
+                "description": "Name of the App Service Plan (Consumption)."
+            }
+        },
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Storage Account for the Function App. Must be globally unique, 3-24 lowercase alphanumeric."
+            }
+        },
+        "keyVaultName": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Optional: Name of an existing Key Vault containing Qualys credentials. Leave empty to use plain app settings."
+            }
+        },
+        "qualysUri": {
+            "type": "string",
+            "metadata": {
+                "description": "Qualys API base URI (e.g. https://qualysapi.qualys.com/api/2.0)."
+            }
+        },
+        "qualysApiUsername": {
+            "type": "securestring",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Qualys API username. Ignored if Key Vault is used."
+            }
+        },
+        "qualysApiPassword": {
+            "type": "securestring",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Qualys API password. Ignored if Key Vault is used."
+            }
+        },
+        "filterParameters": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Optional Qualys KB filter parameters (e.g. details=All)."
+            }
+        },
+        "timeInterval": {
+            "type": "int",
+            "defaultValue": 5,
+            "minValue": 1,
+            "metadata": {
+                "description": "Time interval in minutes for initial checkpoint lookback."
+            }
+        },
+        "timerSchedule": {
+            "type": "string",
+            "defaultValue": "0 */5 * * * *",
+            "metadata": {
+                "description": "CRON expression for the timer trigger schedule."
+            }
+        },
+        "tableRetentionInDays": {
+            "type": "int",
+            "defaultValue": 90,
+            "minValue": 30,
+            "maxValue": 730,
+            "metadata": {
+                "description": "Data retention period in days for the custom table."
+            }
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {
+                "project": "QualysKB-Ingestion",
+                "managedBy": "ARM"
+            },
+            "metadata": {
+                "description": "Tags to apply to all resources."
+            }
+        }
+    },
+    "variables": {
+        "streamName": "[concat('Custom-', parameters('tableName'))]",
+        "outputStreamName": "[concat('Microsoft-Table-', parameters('tableName'))]",
+        "checkpointContainerName": "qualyskb-checkpoints",
+        "monitoringMetricsPublisherRoleId": "3913510d-42f4-4e42-8a64-420c390055eb",
+        "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+        "useKeyVault": "[not(empty(parameters('keyVaultName')))]",
+        "qualysUsernameAppSetting": "[if(variables('useKeyVault'), concat('@Microsoft.KeyVault(VaultName=', parameters('keyVaultName'), ';SecretName=qualys-api-username)'), parameters('qualysApiUsername'))]",
+        "qualysPasswordAppSetting": "[if(variables('useKeyVault'), concat('@Microsoft.KeyVault(VaultName=', parameters('keyVaultName'), ';SecretName=qualys-api-password)'), parameters('qualysApiPassword'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('storageAccountName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "kind": "StorageV2",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "networkAcls": {
+                    "defaultAction": "Allow",
+                    "bypass": "AzureServices"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices",
+            "apiVersion": "2023-01-01",
+            "name": "[concat(parameters('storageAccountName'), '/default')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+            "apiVersion": "2023-01-01",
+            "name": "[concat(parameters('storageAccountName'), '/default/', variables('checkpointContainerName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+            ],
+            "properties": {
+                "publicAccess": "None"
+            }
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('appServicePlanName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic",
+                "size": "Y1",
+                "family": "Y"
+            },
+            "properties": {
+                "reserved": false
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('functionAppName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "kind": "functionapp",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            ],
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                    "powerShellVersion": "7.4",
+                    "ftpsState": "Disabled",
+                    "minTlsVersion": "1.2",
+                    "appSettings": [
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTSHARE",
+                            "value": "[toLower(parameters('functionAppName'))]"
+                        },
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~4"
+                        },
+                        {
+                            "name": "FUNCTIONS_WORKER_RUNTIME",
+                            "value": "powershell"
+                        },
+                        {
+                            "name": "WEBSITE_RUN_FROM_PACKAGE",
+                            "value": "1"
+                        },
+                        {
+                            "name": "qualysUri",
+                            "value": "[parameters('qualysUri')]"
+                        },
+                        {
+                            "name": "apiUsername",
+                            "value": "[variables('qualysUsernameAppSetting')]"
+                        },
+                        {
+                            "name": "apiPassword",
+                            "value": "[variables('qualysPasswordAppSetting')]"
+                        },
+                        {
+                            "name": "filterParameters",
+                            "value": "[parameters('filterParameters')]"
+                        },
+                        {
+                            "name": "timeInterval",
+                            "value": "[string(parameters('timeInterval'))]"
+                        },
+                        {
+                            "name": "dceEndpoint",
+                            "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2022-06-01').logsIngestion.endpoint]"
+                        },
+                        {
+                            "name": "dcrImmutableId",
+                            "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName')), '2022-06-01').immutableId]"
+                        },
+                        {
+                            "name": "dcrStreamName",
+                            "value": "[variables('streamName')]"
+                        },
+                        {
+                            "name": "checkpointContainerName",
+                            "value": "[variables('checkpointContainerName')]"
+                        },
+                        {
+                            "name": "timerSchedule",
+                            "value": "[parameters('timerSchedule')]"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/tables",
+            "apiVersion": "2022-10-01",
+            "name": "[concat(parameters('workspaceName'), '/', parameters('tableName'))]",
+            "properties": {
+                "schema": {
+                    "name": "[parameters('tableName')]",
+                    "columns": [
+                        { "name": "TimeGenerated", "type": "datetime", "description": "Ingestion timestamp derived from Qualys modification datetime" },
+                        { "name": "QID", "type": "string", "description": "Qualys vulnerability ID" },
+                        { "name": "Title", "type": "string", "description": "Vulnerability title" },
+                        { "name": "Category", "type": "string", "description": "Qualys category" },
+                        { "name": "Consequence", "type": "string", "description": "Plain-text consequence description" },
+                        { "name": "Diagnosis", "type": "string", "description": "Plain-text diagnosis description" },
+                        { "name": "Last_Service_Modification_DateTime", "type": "datetime", "description": "Last modification timestamp from Qualys" },
+                        { "name": "Patchable", "type": "string", "description": "Whether a patch is available (0/1)" },
+                        { "name": "CVE_ID", "type": "dynamic", "description": "CVE identifiers as JSON array" },
+                        { "name": "CVE_URL", "type": "dynamic", "description": "CVE reference URLs as JSON array" },
+                        { "name": "Vendor_Reference_ID", "type": "dynamic", "description": "Vendor reference IDs" },
+                        { "name": "Vendor_Reference_URL", "type": "dynamic", "description": "Vendor reference URLs" },
+                        { "name": "PCI_Flag", "type": "string", "description": "PCI compliance flag" },
+                        { "name": "Published_DateTime", "type": "datetime", "description": "Vulnerability publication date" },
+                        { "name": "Severity_Level", "type": "int", "description": "Severity level (1-5)" },
+                        { "name": "Software_Product", "type": "dynamic", "description": "Affected software products" },
+                        { "name": "Software_Vendor", "type": "dynamic", "description": "Affected software vendors" },
+                        { "name": "Solution", "type": "string", "description": "Plain-text solution description" },
+                        { "name": "Vuln_Type", "type": "string", "description": "Vulnerability type" },
+                        { "name": "Discovery_Additional_Info", "type": "string", "description": "Additional discovery information" },
+                        { "name": "Discovery_Auth_Type", "type": "dynamic", "description": "Authentication types used for discovery" },
+                        { "name": "Discovery_Remote", "type": "string", "description": "Remote discovery flag" },
+                        { "name": "THREAT_INTELLIGENCE", "type": "dynamic", "description": "Threat intelligence data" }
+                    ]
+                },
+                "retentionInDays": "[parameters('tableRetentionInDays')]",
+                "plan": "Analytics"
+            }
+        },
+        {
+            "type": "Microsoft.Insights/dataCollectionEndpoints",
+            "apiVersion": "2022-06-01",
+            "name": "[parameters('dceName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "properties": {
+                "networkAcls": {
+                    "publicNetworkAccess": "Enabled"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Insights/dataCollectionRules",
+            "apiVersion": "2022-06-01",
+            "name": "[parameters('dcrName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('workspaceName'), parameters('tableName'))]"
+            ],
+            "kind": "Direct",
+            "properties": {
+                "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]",
+                "streamDeclarations": {
+                    "[variables('streamName')]": {
+                        "columns": [
+                            { "name": "QID", "type": "string" },
+                            { "name": "Title", "type": "string" },
+                            { "name": "Category", "type": "string" },
+                            { "name": "Consequence", "type": "string" },
+                            { "name": "Diagnosis", "type": "string" },
+                            { "name": "Last_Service_Modification_DateTime", "type": "datetime" },
+                            { "name": "Patchable", "type": "string" },
+                            { "name": "CVE_ID", "type": "dynamic" },
+                            { "name": "CVE_URL", "type": "dynamic" },
+                            { "name": "Vendor_Reference_ID", "type": "dynamic" },
+                            { "name": "Vendor_Reference_URL", "type": "dynamic" },
+                            { "name": "PCI_Flag", "type": "string" },
+                            { "name": "Published_DateTime", "type": "datetime" },
+                            { "name": "Severity_Level", "type": "int" },
+                            { "name": "Software_Product", "type": "dynamic" },
+                            { "name": "Software_Vendor", "type": "dynamic" },
+                            { "name": "Solution", "type": "string" },
+                            { "name": "Vuln_Type", "type": "string" },
+                            { "name": "Discovery_Additional_Info", "type": "string" },
+                            { "name": "Discovery_Auth_Type", "type": "dynamic" },
+                            { "name": "Discovery_Remote", "type": "string" },
+                            { "name": "THREAT_INTELLIGENCE", "type": "dynamic" },
+                            { "name": "DateValue", "type": "string" }
+                        ]
+                    }
+                },
+                "destinations": {
+                    "logAnalytics": [
+                        {
+                            "workspaceResourceId": "[parameters('workspaceResourceId')]",
+                            "name": "la-destination"
+                        }
+                    ]
+                },
+                "dataFlows": [
+                    {
+                        "streams": [ "[variables('streamName')]" ],
+                        "destinations": [ "la-destination" ],
+                        "transformKql": "source | extend TimeGenerated = coalesce(todatetime(DateValue), now()) | project-away DateValue",
+                        "outputStream": "[variables('outputStreamName')]"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')), variables('monitoringMetricsPublisherRoleId'))]",
+            "scope": "[concat('Microsoft.Insights/dataCollectionRules/', parameters('dcrName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName'))]",
+                "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('monitoringMetricsPublisherRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')), variables('storageBlobDataContributorRoleId'))]",
+            "scope": "[concat('Microsoft.Storage/storageAccounts/', parameters('storageAccountName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+                "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        }
+    ],
+    "outputs": {
+        "functionAppName": {
+            "type": "string",
+            "value": "[parameters('functionAppName')]"
+        },
+        "functionAppResourceId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+        },
+        "managedIdentityPrincipalId": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]"
+        },
+        "dcrResourceId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName'))]"
+        },
+        "dcrImmutableId": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName')), '2022-06-01').immutableId]"
+        },
+        "dceResourceId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]"
+        },
+        "dceLogsIngestionEndpoint": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2022-06-01').logsIngestion.endpoint]"
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "value": "[parameters('workspaceResourceId')]"
+        },
+        "tableName": {
+            "type": "string",
+            "value": "[parameters('tableName')]"
+        },
+        "storageAccountName": {
+            "type": "string",
+            "value": "[parameters('storageAccountName')]"
+        }
+    }
+}

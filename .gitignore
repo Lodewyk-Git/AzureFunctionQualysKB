@@ -1,0 +1,11 @@
+# Azure Functions
+local.settings.json
+bin/
+obj/
+.vs/
+.vscode/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

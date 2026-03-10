@@ -1,0 +1,62 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Deploys a Data Collection Endpoint (DCE) for Qualys KB log ingestion."
+    },
+    "parameters": {
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Azure region. Must match the Log Analytics workspace region."
+            }
+        },
+        "dceName": {
+            "type": "string",
+            "defaultValue": "dce-qualyskb",
+            "metadata": {
+                "description": "Name of the Data Collection Endpoint."
+            }
+        },
+        "publicNetworkAccess": {
+            "type": "string",
+            "defaultValue": "Enabled",
+            "allowedValues": [ "Enabled", "Disabled" ],
+            "metadata": {
+                "description": "Whether the DCE accepts traffic over public networks."
+            }
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {
+                "project": "QualysKB-Ingestion",
+                "managedBy": "ARM"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/dataCollectionEndpoints",
+            "apiVersion": "2022-06-01",
+            "name": "[parameters('dceName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "properties": {
+                "networkAcls": {
+                    "publicNetworkAccess": "[parameters('publicNetworkAccess')]"
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "dceResourceId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]"
+        },
+        "dceLogsIngestionEndpoint": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2022-06-01').logsIngestion.endpoint]"
+        }
+    }
+}

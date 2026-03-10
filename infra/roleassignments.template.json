@@ -1,0 +1,59 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Assigns Monitoring Metrics Publisher role on the DCR to the Function App managed identity, and Storage Blob Data Contributor on the Storage Account for checkpoint access."
+    },
+    "parameters": {
+        "dcrResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Data Collection Rule."
+            }
+        },
+        "dcrName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Data Collection Rule (used for scoped assignment)."
+            }
+        },
+        "functionAppPrincipalId": {
+            "type": "string",
+            "metadata": {
+                "description": "Object (principal) ID of the Function App managed identity."
+            }
+        },
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the storage account for blob checkpoint access."
+            }
+        }
+    },
+    "variables": {
+        "monitoringMetricsPublisherRoleId": "3913510d-42f4-4e42-8a64-420c390055eb",
+        "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/dataCollectionRules/providers/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[concat(parameters('dcrName'), '/Microsoft.Authorization/', guid(parameters('dcrResourceId'), parameters('functionAppPrincipalId'), variables('monitoringMetricsPublisherRoleId')))]",
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('monitoringMetricsPublisherRoleId'))]",
+                "principalId": "[parameters('functionAppPrincipalId')]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/providers/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[concat(parameters('storageAccountName'), '/Microsoft.Authorization/', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('functionAppPrincipalId'), variables('storageBlobDataContributorRoleId')))]",
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
+                "principalId": "[parameters('functionAppPrincipalId')]",
+                "principalType": "ServicePrincipal"
+            }
+        }
+    ]
+}

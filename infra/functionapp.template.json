@@ -1,0 +1,257 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Deploys the Azure Function App with Storage Account, App Service Plan, and system-assigned Managed Identity for Qualys KB ingestion."
+    },
+    "parameters": {
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        },
+        "functionAppName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Function App."
+            }
+        },
+        "appServicePlanName": {
+            "type": "string",
+            "defaultValue": "[concat('asp-', parameters('functionAppName'))]"
+        },
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Globally unique storage account name (3-24 lowercase alphanumeric)."
+            }
+        },
+        "qualysUri": {
+            "type": "string"
+        },
+        "qualysApiUsername": {
+            "type": "securestring",
+            "defaultValue": ""
+        },
+        "qualysApiPassword": {
+            "type": "securestring",
+            "defaultValue": ""
+        },
+        "keyVaultName": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Optional Key Vault name for Qualys credentials. Leave empty to use direct values."
+            }
+        },
+        "dceEndpoint": {
+            "type": "string",
+            "metadata": {
+                "description": "DCE logs ingestion endpoint URL."
+            }
+        },
+        "dcrImmutableId": {
+            "type": "string",
+            "metadata": {
+                "description": "DCR immutable ID (GUID)."
+            }
+        },
+        "dcrStreamName": {
+            "type": "string",
+            "defaultValue": "Custom-QualysKB_CL"
+        },
+        "filterParameters": {
+            "type": "string",
+            "defaultValue": ""
+        },
+        "timeInterval": {
+            "type": "int",
+            "defaultValue": 5
+        },
+        "timerSchedule": {
+            "type": "string",
+            "defaultValue": "0 */5 * * * *"
+        },
+        "checkpointContainerName": {
+            "type": "string",
+            "defaultValue": "qualyskb-checkpoints"
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {
+                "project": "QualysKB-Ingestion",
+                "managedBy": "ARM"
+            }
+        }
+    },
+    "variables": {
+        "useKeyVault": "[not(empty(parameters('keyVaultName')))]",
+        "qualysUsernameValue": "[if(variables('useKeyVault'), concat('@Microsoft.KeyVault(VaultName=', parameters('keyVaultName'), ';SecretName=qualys-api-username)'), parameters('qualysApiUsername'))]",
+        "qualysPasswordValue": "[if(variables('useKeyVault'), concat('@Microsoft.KeyVault(VaultName=', parameters('keyVaultName'), ';SecretName=qualys-api-password)'), parameters('qualysApiPassword'))]",
+        "storageConnectionString": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value)]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('storageAccountName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "kind": "StorageV2",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices",
+            "apiVersion": "2023-01-01",
+            "name": "[concat(parameters('storageAccountName'), '/default')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+            "apiVersion": "2023-01-01",
+            "name": "[concat(parameters('storageAccountName'), '/default/', parameters('checkpointContainerName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+            ],
+            "properties": {
+                "publicAccess": "None"
+            }
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('appServicePlanName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic",
+                "size": "Y1",
+                "family": "Y"
+            },
+            "properties": {
+                "reserved": false
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2023-01-01",
+            "name": "[parameters('functionAppName')]",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "kind": "functionapp",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            ],
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                    "powerShellVersion": "7.4",
+                    "ftpsState": "Disabled",
+                    "minTlsVersion": "1.2",
+                    "appSettings": [
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[variables('storageConnectionString')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                            "value": "[variables('storageConnectionString')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTSHARE",
+                            "value": "[toLower(parameters('functionAppName'))]"
+                        },
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~4"
+                        },
+                        {
+                            "name": "FUNCTIONS_WORKER_RUNTIME",
+                            "value": "powershell"
+                        },
+                        {
+                            "name": "WEBSITE_RUN_FROM_PACKAGE",
+                            "value": "1"
+                        },
+                        {
+                            "name": "qualysUri",
+                            "value": "[parameters('qualysUri')]"
+                        },
+                        {
+                            "name": "apiUsername",
+                            "value": "[variables('qualysUsernameValue')]"
+                        },
+                        {
+                            "name": "apiPassword",
+                            "value": "[variables('qualysPasswordValue')]"
+                        },
+                        {
+                            "name": "filterParameters",
+                            "value": "[parameters('filterParameters')]"
+                        },
+                        {
+                            "name": "timeInterval",
+                            "value": "[string(parameters('timeInterval'))]"
+                        },
+                        {
+                            "name": "dceEndpoint",
+                            "value": "[parameters('dceEndpoint')]"
+                        },
+                        {
+                            "name": "dcrImmutableId",
+                            "value": "[parameters('dcrImmutableId')]"
+                        },
+                        {
+                            "name": "dcrStreamName",
+                            "value": "[parameters('dcrStreamName')]"
+                        },
+                        {
+                            "name": "checkpointContainerName",
+                            "value": "[parameters('checkpointContainerName')]"
+                        },
+                        {
+                            "name": "timerSchedule",
+                            "value": "[parameters('timerSchedule')]"
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "functionAppName": {
+            "type": "string",
+            "value": "[parameters('functionAppName')]"
+        },
+        "functionAppResourceId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+        },
+        "managedIdentityPrincipalId": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]"
+        },
+        "managedIdentityTenantId": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.tenantId]"
+        },
+        "storageAccountName": {
+            "type": "string",
+            "value": "[parameters('storageAccountName')]"
+        }
+    }
+}

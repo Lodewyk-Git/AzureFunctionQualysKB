@@ -1,0 +1,168 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Deploys the QualysKB_CL DCR-based custom table in a Log Analytics workspace."
+    },
+    "parameters": {
+        "workspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the existing Log Analytics workspace."
+            }
+        },
+        "tableName": {
+            "type": "string",
+            "defaultValue": "QualysKB_CL",
+            "metadata": {
+                "description": "Name of the custom table. Must end with _CL."
+            }
+        },
+        "retentionInDays": {
+            "type": "int",
+            "defaultValue": 90,
+            "minValue": 30,
+            "maxValue": 730,
+            "metadata": {
+                "description": "Data retention period in days."
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/tables",
+            "apiVersion": "2022-10-01",
+            "name": "[concat(parameters('workspaceName'), '/', parameters('tableName'))]",
+            "properties": {
+                "schema": {
+                    "name": "[parameters('tableName')]",
+                    "columns": [
+                        {
+                            "name": "TimeGenerated",
+                            "type": "datetime",
+                            "description": "Ingestion timestamp derived from Qualys LAST_SERVICE_MODIFICATION_DATETIME"
+                        },
+                        {
+                            "name": "QID",
+                            "type": "string",
+                            "description": "Qualys vulnerability ID"
+                        },
+                        {
+                            "name": "Title",
+                            "type": "string",
+                            "description": "Vulnerability title"
+                        },
+                        {
+                            "name": "Category",
+                            "type": "string",
+                            "description": "Qualys vulnerability category"
+                        },
+                        {
+                            "name": "Consequence",
+                            "type": "string",
+                            "description": "Plain-text consequence description (HTML stripped)"
+                        },
+                        {
+                            "name": "Diagnosis",
+                            "type": "string",
+                            "description": "Plain-text diagnosis description (HTML stripped)"
+                        },
+                        {
+                            "name": "Last_Service_Modification_DateTime",
+                            "type": "datetime",
+                            "description": "Last modification timestamp from Qualys service"
+                        },
+                        {
+                            "name": "Patchable",
+                            "type": "string",
+                            "description": "Whether a patch is available (0 or 1)"
+                        },
+                        {
+                            "name": "CVE_ID",
+                            "type": "dynamic",
+                            "description": "CVE identifier(s) as JSON array"
+                        },
+                        {
+                            "name": "CVE_URL",
+                            "type": "dynamic",
+                            "description": "CVE reference URL(s) as JSON array"
+                        },
+                        {
+                            "name": "Vendor_Reference_ID",
+                            "type": "dynamic",
+                            "description": "Vendor reference ID(s) as JSON array"
+                        },
+                        {
+                            "name": "Vendor_Reference_URL",
+                            "type": "dynamic",
+                            "description": "Vendor reference URL(s) as JSON array"
+                        },
+                        {
+                            "name": "PCI_Flag",
+                            "type": "string",
+                            "description": "PCI compliance flag"
+                        },
+                        {
+                            "name": "Published_DateTime",
+                            "type": "datetime",
+                            "description": "Vulnerability publication date from Qualys"
+                        },
+                        {
+                            "name": "Severity_Level",
+                            "type": "int",
+                            "description": "Severity level (1-5)"
+                        },
+                        {
+                            "name": "Software_Product",
+                            "type": "dynamic",
+                            "description": "Affected software product(s) as JSON array"
+                        },
+                        {
+                            "name": "Software_Vendor",
+                            "type": "dynamic",
+                            "description": "Affected software vendor(s) as JSON array"
+                        },
+                        {
+                            "name": "Solution",
+                            "type": "string",
+                            "description": "Plain-text solution description (HTML stripped)"
+                        },
+                        {
+                            "name": "Vuln_Type",
+                            "type": "string",
+                            "description": "Vulnerability type classification"
+                        },
+                        {
+                            "name": "Discovery_Additional_Info",
+                            "type": "string",
+                            "description": "Additional discovery information"
+                        },
+                        {
+                            "name": "Discovery_Auth_Type",
+                            "type": "dynamic",
+                            "description": "Authentication type(s) used for discovery"
+                        },
+                        {
+                            "name": "Discovery_Remote",
+                            "type": "string",
+                            "description": "Remote discovery flag"
+                        },
+                        {
+                            "name": "THREAT_INTELLIGENCE",
+                            "type": "dynamic",
+                            "description": "Threat intelligence data as JSON"
+                        }
+                    ]
+                },
+                "retentionInDays": "[parameters('retentionInDays')]",
+                "plan": "Analytics"
+            }
+        }
+    ],
+    "outputs": {
+        "tableName": {
+            "type": "string",
+            "value": "[parameters('tableName')]"
+        }
+    }
+}
